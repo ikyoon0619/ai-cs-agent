@@ -1,0 +1,15 @@
+# LLM · RAG
+langchain>=1.4,<2
+langchain-community>=0.4,<0.5
+langchain-text-splitters>=1.1,<2
+langchain-anthropic>=1.7,<2
+langchain-voyageai>=0.4,<0.5
+langchain-chroma>=1.1,<2
+pypdf>=7,<8
+
+# 설정 · 화면
+pydantic-settings>=2.16,<3
+streamlit>=1.67,<2
+
+# 테스트
+pytest>=9,<10

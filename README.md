@@ -6,7 +6,7 @@
 ## 진행 상황
 
 - [x] step 1: 카탈로그 PDF 로드 (PyPDFLoader, 29페이지)
-- [ ] step 2: 청크 분할
+- [x] step 2: 청크 분할
 - [ ] step 3: 임베딩 + 벡터 DB 저장
 - [ ] step 4: 검색
 - [ ] step 5: 출처와 함께 답변

@@ -38,10 +38,17 @@ def get_store():
 if __name__ == "__main__":
     store = get_store()
 
-    question = "기름 얼마나 먹어?"
-    results = store.similarity_search(question, k=3)  # 빈칸 ③: 가까운 것 k개 찾는 메서드
+    questions = [
+        "연비가 어떻게 돼?",
+        "트림 종류 알려줘",
+        "안전 사양 뭐 있어?",
+    ]
 
-    for doc in results:
-        print("페이지:", doc.metadata["page_label"])
-        print("본문:", doc.page_content[:80])
-        print("---")
+    for question in questions:                 # 질문을 하나씩 꺼내서
+        print("==== 질문:", question)
+        results = store.similarity_search(question, k=3)
+
+        for doc in results:                    # 찾은 청크 3개를 하나씩 출력
+            print("페이지:", doc.metadata["page_label"])
+            print("본문:", doc.page_content[:80])
+            print("---")

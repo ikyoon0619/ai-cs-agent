@@ -1,4 +1,6 @@
 # rag/store.py
+import os
+
 from langchain_chroma import Chroma
 
 from rag.load import PDF_PATH, load_pdf
@@ -20,9 +22,21 @@ def build_store():
         collection_name=COLLECTION,
     )
 
+def load_store():
+    return Chroma(
+        collection_name=COLLECTION,
+        embedding_function=get_embeddings(),
+        persist_directory=DB_DIR,
+    )
+
+def get_store():
+    # 폴더가 있으면 열고, 없으면 새로 만든다
+    if os.path.exists(DB_DIR):
+        return load_store()
+    return build_store()
 
 if __name__ == "__main__":
-    store = build_store()
+    store = get_store()
 
     question = "기름 얼마나 먹어?"
     results = store.similarity_search(question, k=3)  # 빈칸 ③: 가까운 것 k개 찾는 메서드

@@ -46,4 +46,4 @@ def ask(question):
 
 
 if __name__ == "__main__":
-    print(ask("기름 얼마나 먹어?"))
+    print(ask("아반떼 연비는 얼마야?"))

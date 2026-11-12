@@ -4,3 +4,4 @@ pypdf==7.0.0
 python-dotenv==1.2.4
 langchain-chroma==1.1.0
 langchain-voyageai==0.4.1
+langchain-anthropic==1.7.10

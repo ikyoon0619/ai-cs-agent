@@ -5,4 +5,4 @@ __pycache__/
 data/*.pdf
 chroma_db/
 .DS_Store
-.idea/chroma_db/
+.idea/

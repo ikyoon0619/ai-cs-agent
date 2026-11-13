@@ -1,8 +1,7 @@
 # rag/answer.py
 # 질문 → 검색 → 청크를 글로 합치기 → 프롬프트에 끼우기 → Claude → 출처 붙은 답
-
+from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate      # 빈칸 있는 질문 양식
-from langchain_core.output_parsers import StrOutputParser  # Claude 답에서 글자만 꺼내는 도구
 
 from rag.store import get_store   # 3일차: 저장된 Chroma 열기
 from rag.llm import get_llm       # 4일차 #18: Claude 만들기
@@ -18,22 +17,22 @@ def format_docs(docs):
     return "\n\n".join(parts)                          # 청크 사이를 빈 줄로 구분
 
 
-# 질문 양식 (편지 양식처럼 {context}, {question} 자리가 비어 있다)
+
+class Answer(BaseModel):
+    # Claude가 채워야 하는 칸 2개. description은 Claude가 읽는 "칸 설명"
+    answer: str = Field(description="카탈로그 근거로 쓴 답변")
+    sources: list[str] = Field(description="근거로 쓴 페이지 번호 목록. 근거가 없으면 빈 리스트")
+
+
 prompt = ChatPromptTemplate.from_messages([
-    # system = Claude에게 주는 역할과 규칙. 사용자에게는 안 보인다
     ("system",
      "너는 쏘나타 카탈로그 상담원이다. "
-     "아래 카탈로그 내용만 근거로 답하고, 근거 페이지를 (p.번호)로 표시해라. "
-     "근거가 없으면 '카탈로그에서 찾을 수 없습니다'라고 답해라."),
-    # human = 실제로 Claude에게 보내는 메시지. 빈칸은 invoke할 때 채워진다
+     "아래 카탈로그 내용만 근거로 답해라. 근거로 쓴 페이지 번호는 sources에 넣어라. "
+     "근거가 없으면 answer에 '카탈로그에서 찾을 수 없습니다'라고 쓰고 sources는 비워라."),
     ("human", "카탈로그 내용:\n{context}\n\n질문: {question}"),
 ])
 
-# 체인: 부품 3개를 파이프(|)로 연결. 왼쪽 결과가 오른쪽으로 넘어간다
-#   prompt          : 빈칸을 채워 완성된 메시지를 만든다
-#   get_llm()       : 완성된 메시지를 Claude에게 보내고 답(AIMessage)을 받는다
-#   StrOutputParser : 답에서 .content(글자)만 꺼낸다 → 결과가 그냥 문자열
-chain = prompt | get_llm() | StrOutputParser()
+chain = prompt | get_llm().with_structured_output(Answer, method="json_schema")   # 빈칸: "구조화된 출력과 함께"
 
 
 def ask(question):
@@ -46,4 +45,9 @@ def ask(question):
 
 
 if __name__ == "__main__":
-    print(ask("아반떼 연비는 얼마야?"))
+    for question in ["트림 종류 알려줘", "아반떼 연비는 얼마야?"]:
+        result = ask(question)
+        print("==== 질문:", question)
+        print("답변:", result.answer)
+        print("출처:", result.sources)     # 리스트로 나와야 함
+        print()

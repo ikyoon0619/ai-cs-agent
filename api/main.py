@@ -1,5 +1,7 @@
 # api/main.py
 # FastAPI 서버: HTTP 요청을 받아 RAG 챗봇(ask)을 부른다
+import logging
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
@@ -7,6 +9,7 @@ from rag.answer import ask, Answer   # 1주차에 만든 함수와 응답 모양
 
 app = FastAPI(title="쏘나타 카탈로그 상담 API")
 
+logger = logging.getLogger("uvicorn.error")   # uvicorn 터미널에 찍히는 로거
 
 class ChatRequest(BaseModel):
     # 요청 JSON의 모양. Spring의 @RequestBody DTO + @Valid 검증과 같다
@@ -24,5 +27,5 @@ def chat(req: ChatRequest):
     try:
         return ask(req.question)            # 검색 → Claude → Answer 객체
     except Exception as e:
-        # DB가 꺼져 있거나 Claude/Voyage API 오류일 때 503으로 응답
+        logger.exception("chat 실패")   # 서버 터미널에 전체 에러(traceback) 기록
         raise HTTPException(status_code=503, detail=f"답변 생성 실패: {type(e).__name__}")

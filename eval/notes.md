@@ -69,3 +69,20 @@
 - 같은 청크 + 같은 임베딩(voyage-3.5) + 같은 거리 계산이라 저장소만 바꿔도 순위가 같다.
 - 저장소는 "어디에 두느냐"이고, 검색 품질은 "어떻게 찾느냐"가 정한다 → 3주차 하이브리드 검색에서 개선.
 - 저장(scripts/ingest.py)과 사용(get_store)을 분리했다. DB에는 폴더가 없어 os.path.exists로 저장 여부를 판단할 수 없기 때문.
+
+
+## 8. 2주차 수: FastAPI POST /chat
+
+| 요청 | 기대 | 결과 |
+|------|------|------|
+| GET /health | 200 {"status":"ok"} | O |
+| POST /chat 정상 질문 | 200 answer + sources | O |
+| POST /chat 빈 질문 | 422 | O |
+| POST /chat (DB 꺼짐) | 503 | O |
+
+- pytest 3개 통과 (ask를 monkeypatch로 가짜 교체 → 외부 API 호출 0회)
+
+### 관찰
+- RAG 로직(ask)은 그대로 두고 FastAPI로 감싸기만 해서 HTTP API가 됐다. Swagger 문서는 자동 생성.
+- 입력 검증(Pydantic Field)으로 빈 질문은 LLM 호출 전에 422로 막힌다 → 비용 절약.
+- DB가 꺼지면 langchain_postgres가 일반 Exception으로 감싸서 던진다. 503으로 응답하고, 원인은 서버 로그(logger.exception)로 확인.

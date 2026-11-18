@@ -6,3 +6,4 @@ data/*.pdf
 chroma_db/
 .DS_Store
 .idea/
+eval/pages.txt

@@ -1,0 +1,20 @@
+{"id": 1, "question": "트림 종류 알려줘", "pages": ["20"], "answers": ["Exclusive"], "type": "쉬움"}
+{"id": 2, "question": "N Line만의 특징은 뭐야?", "pages": ["6"], "answers": ["사이드 실 몰딩"], "type": "쉬움"}
+{"id": 3, "question": "시트 색상 뭐 있어?", "pages": ["22", "23"], "answers": ["카멜"], "type": "쉬움"}
+{"id": 4, "question": "BOSE 스피커는 몇 개야?", "pages": ["13"], "answers": ["12스피커"], "type": "쉬움"}
+{"id": 5, "question": "디지털 키는 몇 대까지 공유할 수 있어?", "pages": ["10"], "answers": ["15개 디바이스"], "type": "쉬움"}
+{"id": 6, "question": "LPG 모델 연료탱크 용량은?", "pages": ["27"], "answers": ["80%충전"], "type": "숫자"}
+{"id": 7, "question": "2.5 터보 엔진 최고출력은?", "pages": ["15", "27"], "answers": ["290"], "type": "숫자"}
+{"id": 8, "question": "트렁크 용량은 몇 리터야?", "pages": ["27"], "answers": ["480"], "type": "숫자"}
+{"id": 9, "question": "하이브리드 복합연비는?", "pages": ["15", "27"], "answers": ["19.4"], "type": "숫자"}
+{"id": 10, "question": "1.6 터보 18인치 도심 연비는?", "pages": ["27"], "answers": ["11.4"], "type": "숫자"}
+{"id": 11, "question": "하이브리드 배터리 보증 기간은?", "pages": ["27"], "answers": ["20만 km"], "type": "숫자"}
+{"id": 12, "question": "기름 얼마나 먹어?", "pages": ["15", "27"], "answers": ["12.6", "13.5", "19.4"], "type": "표현바꿈"}
+{"id": 13, "question": "차 안전해? 운전 도와주는 기능 있어?", "pages": ["16", "17"], "answers": ["전방 충돌방지 보조", "차로 유지 보조"], "type": "표현바꿈"}
+{"id": 14, "question": "타던 차 팔고 사면 혜택 있어?", "pages": ["28"], "answers": ["트레이드인"], "type": "표현바꿈"}
+{"id": 15, "question": "고속도로에서 알아서 속도 맞춰서 달려줘?", "pages": ["17"], "answers": ["스마트 크루즈 컨트롤"], "type": "표현바꿈"}
+{"id": 16, "question": "사고 나서 마음 바뀌면 다른 차로 바꿀 수 있어?", "pages": ["28"], "answers": ["차종교환"], "type": "표현바꿈"}
+{"id": 17, "question": "휴대폰으로 시동 걸 수 있어?", "pages": ["10", "26"], "answers": ["디지털 키"], "type": "표현바꿈"}
+{"id": 18, "question": "아반떼 연비는 얼마야?", "pages": [], "answers": [], "type": "없음"}
+{"id": 19, "question": "선루프 있어?", "pages": [], "answers": [], "type": "없음"}
+{"id": 20, "question": "4륜구동 모델 있어?", "pages": [], "answers": [], "type": "없음"}

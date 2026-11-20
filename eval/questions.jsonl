@@ -1,4 +1,4 @@
-{"id": 1, "question": "트림 종류 알려줘", "pages": ["20"], "answers": ["Exclusive"], "type": "쉬움"}
+{"id": 1, "question": "트림 종류 알려줘", "pages": ["20", "23"], "answers": ["Exclusive", "익스클루시브"], "type": "쉬움"}
 {"id": 2, "question": "N Line만의 특징은 뭐야?", "pages": ["6"], "answers": ["사이드 실 몰딩"], "type": "쉬움"}
 {"id": 3, "question": "시트 색상 뭐 있어?", "pages": ["22", "23"], "answers": ["카멜"], "type": "쉬움"}
 {"id": 4, "question": "BOSE 스피커는 몇 개야?", "pages": ["13"], "answers": ["12스피커"], "type": "쉬움"}
@@ -18,3 +18,9 @@
 {"id": 18, "question": "아반떼 연비는 얼마야?", "pages": [], "answers": [], "type": "없음"}
 {"id": 19, "question": "선루프 있어?", "pages": [], "answers": [], "type": "없음"}
 {"id": 20, "question": "4륜구동 모델 있어?", "pages": [], "answers": [], "type": "없음"}
+{"id": 21, "question": "T9M은 무슨 색이야?", "pages": ["22"], "answers": ["T9M"], "type": "코드"}
+{"id": 22, "question": "RSPA가 뭐야?", "pages": ["11"], "answers": ["RSPA"], "type": "코드"}
+{"id": 23, "question": "BVM은 어떤 기능이야?", "pages": ["11"], "answers": ["BVM"], "type": "코드"}
+{"id": 24, "question": "SEW 기능 설명해줘", "pages": ["16"], "answers": ["SEW"], "type": "코드"}
+{"id": 25, "question": "HPCU도 보증돼?", "pages": ["27"], "answers": ["HPCU"], "type": "코드"}
+{"id": 26, "question": "e-DTVC가 뭐야?", "pages": ["19"], "answers": ["e-DTVC"], "type": "코드"}

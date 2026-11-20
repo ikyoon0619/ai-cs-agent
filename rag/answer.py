@@ -1,10 +1,11 @@
 # rag/answer.py
-# 질문 → 검색 → 청크를 글로 합치기 → 프롬프트에 끼우기 → Claude → 출처 붙은 답
+# 질문 → 하이브리드 검색 → 청크를 글로 합치기 → 프롬프트에 끼우기 → Claude → 출처 붙은 답
+from functools import lru_cache
 from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate      # 빈칸 있는 질문 양식
 
-from rag.store import get_store   # 3일차: 저장된 Chroma 열기
-from rag.llm import get_llm       # 4일차 #18: Claude 만들기
+from rag.hybrid import HybridSearcher   # 벡터(pgvector) + BM25 키워드 검색
+from rag.llm import get_llm
 
 
 def format_docs(docs):
@@ -34,13 +35,17 @@ prompt = ChatPromptTemplate.from_messages([
 
 chain = prompt | get_llm().with_structured_output(Answer, method="json_schema")   # 빈칸: "구조화된 출력과 함께"
 
+@lru_cache                  # 처음 한 번만 만들고, 그다음부터는 만든 걸 재사용
+def get_searcher():
+    return HybridSearcher()
+
 
 def ask(question):
-    # ① 검색: 질문과 뜻이 가까운 청크 3개
-    docs = get_store().similarity_search(question, k=3)
+    # ① 검색: 하이브리드로 청크 3개 (벡터 순위 + BM25 순위를 RRF로 합침)
+    docs = get_searcher().search(question, k=3)
     # ② 청크 3개 → "[p.27] ...\n\n[p.15] ..." 글 한 덩어리
     context = format_docs(docs)
-    # ③ 양식의 빈칸 이름과 딕셔너리 키가 같아야 한다 ({context} ↔ "context")
+    # ③ 양식의 빈칸 이름과 딕셔너리 키가 같아야 한다
     return chain.invoke({"context": context, "question": question})
 
 

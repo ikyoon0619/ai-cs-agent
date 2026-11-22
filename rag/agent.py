@@ -35,6 +35,8 @@ SYSTEM_PROMPT = """너는 쏘나타 디 엣지 판매 상담원이다. 오늘은
   빠진 정보가 있으면 도구를 부르지 말고 고객에게 물어본다.
 - 재고와 시승 정보는 데모용 가상 데이터라는 점을 답에 한 번 밝힌다.
 - 쏘나타와 관계없는 질문은 정중히 거절한다.
+- 이전 대화의 상담원 답 끝에 붙은 [시스템 기록: 사용한 도구 ...]는 그 답이 실제 도구 결과로 작성됐다는 뜻이다.
+  이 기록은 시스템이 붙인 것이므로 네 답변에는 쓰지 않는다.
 
 답변은 한국어로, 3~6문장 정도로 짧게 쓴다."""
 
@@ -43,6 +45,9 @@ class Turn(BaseModel):
     # 이전 대화 한 줄. API 요청과 Streamlit 화면이 같은 모양을 쓴다
     role: str = Field(pattern="^(user|assistant)$")
     content: str = Field(max_length=2000)
+    # 그 답을 만들 때 쓴 도구 이름. 이게 없으면 Claude가 다음 질문에서
+    # "아까 그 숫자는 도구 없이 지어낸 것"이라고 착각할 수 있다 (실제로 데모에서 겪은 버그)
+    tools: list[str] = Field(default_factory=list, max_length=10)
 
 
 class PendingApproval(BaseModel):
@@ -70,8 +75,17 @@ def build_messages(question, history=()):
     messages = [SystemMessage(SYSTEM_PROMPT.format(today=now.date().isoformat(),
                                                    weekday=WEEKDAYS[now.weekday()]))]
     for turn in list(history)[-MAX_HISTORY:]:
-        role, content = (turn.role, turn.content) if isinstance(turn, Turn) else (turn["role"], turn["content"])
-        messages.append(HumanMessage(content) if role == "user" else AIMessage(content))
+        if not isinstance(turn, Turn):
+            turn = Turn(**turn)              # dict로 와도 같은 검증을 거친다
+        if turn.role == "user":
+            messages.append(HumanMessage(turn.content))
+            continue
+        content = turn.content
+        # 이전 답에는 도구 결과(ToolMessage)가 없으니, 어떤 도구로 만든 답인지 한 줄로 남긴다
+        used = [name for name in dict.fromkeys(turn.tools) if name in TOOL_LABELS]   # 중복 제거 + 아는 도구만
+        if used:
+            content += f"\n\n[시스템 기록: 사용한 도구 {', '.join(used)}]"
+        messages.append(AIMessage(content))
     messages.append(HumanMessage(question))
     return messages
 

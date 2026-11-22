@@ -2,7 +2,9 @@
 import os
 
 from dotenv import load_dotenv
+from langchain_core.documents import Document
 from langchain_postgres import PGVector
+from sqlalchemy import create_engine, text
 
 from rag.load import PDF_PATH, load_pdf
 from rag.split import split_docs
@@ -17,6 +19,8 @@ def build_store():
     """PDF → 청크 → 벡터 → PostgreSQL 저장. 처음 한 번, 또는 PDF가 바뀌었을 때만 실행."""
     pages = load_pdf(PDF_PATH)         # 1일차: PDF를 페이지 단위로 읽기
     chunks = split_docs(pages)         # 2일차: 500자 단위로 자르기
+    for i, chunk in enumerate(chunks):
+        chunk.metadata["chunk_index"] = i   # PDF 안 순서 번호. DB에서 꺼낼 때 같은 순서로 정렬하려고
     return PGVector.from_documents(
         documents=chunks,              # 저장할 청크들
         embedding=get_embeddings(),    # 3일차: Voyage로 각 청크를 1024차원 벡터로 변환
@@ -35,6 +39,22 @@ def load_store():
         connection=DB_URL,
         use_jsonb=True,
     )
+
+
+def load_chunks():
+    """DB에 저장된 청크를 전부 꺼낸다 (BM25용). PDF 파일 없이도 동작 → 배포 서버에 PDF를 안 올려도 됨."""
+    sql = text("""
+               SELECT e.document, e.cmetadata
+               FROM langchain_pg_embedding e
+                        JOIN langchain_pg_collection c ON e.collection_id = c.uuid
+               WHERE c.name = :name
+               ORDER BY (e.cmetadata->>'chunk_index')::int NULLS LAST, e.id
+               """)
+    engine = create_engine(DB_URL)
+    with engine.connect() as conn:
+        rows = conn.execute(sql, {"name": COLLECTION}).all()
+    engine.dispose()                   # 한 번 쓰고 끝이니 연결 정리
+    return [Document(page_content=doc, metadata=meta) for doc, meta in rows]
 
 
 def get_store():

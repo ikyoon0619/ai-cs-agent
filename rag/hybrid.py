@@ -4,10 +4,7 @@ import re
 
 from rank_bm25 import BM25Okapi
 
-from rag.load import PDF_PATH, load_pdf
-from rag.split import split_docs
-from rag.store import get_store
-
+from rag.store import get_store, load_chunks
 
 def tokenize(text):
     """BM25용 단어 쪼개기.
@@ -27,7 +24,9 @@ def tokenize(text):
 class HybridSearcher:
     def __init__(self):
         self.store = get_store()                             # 벡터 검색용 (PostgreSQL)
-        self.chunks = split_docs(load_pdf(PDF_PATH))         # BM25용 청크 44개 (임베딩 비용 0)
+        self.chunks = load_chunks()                          # BM25용 청크 44개 (DB에서 꺼냄, 임베딩 비용 0)
+        if not self.chunks:
+            raise RuntimeError("DB에 청크가 없습니다. 먼저 python -m scripts.ingest 를 실행하세요")      # BM25용 청크 44개 (임베딩 비용 0)
         self.bm25 = BM25Okapi([tokenize(c.page_content) for c in self.chunks])
 
     def keyword_search(self, query, k):

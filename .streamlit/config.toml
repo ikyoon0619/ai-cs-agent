@@ -1,0 +1,9 @@
+# Streamlit 설정 (배포 서버에서도 그대로 적용됨)
+[server]
+headless = true              # 서버에서 브라우저를 자동으로 열지 않음
+
+[client]
+toolbarMode = "viewer"       # 오른쪽 위 Deploy 버튼 등 개발자 메뉴 숨김
+
+[browser]
+gatherUsageStats = false     # Streamlit 사용 통계 전송 끔

@@ -14,4 +14,5 @@ uvicorn==0.54.0
 httpx==0.28.1
 pytest==9.2.0
 rank-bm25==0.2.2
-SQLAlchemy==2.1.9langgraph==1.2.24
+SQLAlchemy==2.1.9
+langgraph==1.2.24

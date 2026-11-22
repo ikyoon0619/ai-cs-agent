@@ -178,3 +178,14 @@ def test_invalid_booking_skips_approval(monkeypatch):
     result = agent.run_agent("2000년 1월 1일 예약")
     assert result.pending is None
     assert fake.calls[1][-1].status == "error"
+
+
+def test_history_keeps_tool_record():
+    # 이전 답이 도구로 만든 답이면, 그 사실이 Claude에게 넘어가야 한다
+    # (안 그러면 "아까 재고는 조회 안 하고 답했다"고 잘못 사과함)
+    history = [{"role": "user", "content": "하이브리드 재고 있어?"},
+               {"role": "assistant", "content": "4대 있습니다.", "tools": ["check_inventory", "check_inventory"]},
+               {"role": "assistant", "content": "안녕하세요", "tools": ["없는도구"]}]
+    messages = agent.build_messages("시승 가능해?", history)
+    assert messages[2].content.endswith("[시스템 기록: 사용한 도구 check_inventory]")
+    assert messages[3].content == "안녕하세요"          # 모르는 도구 이름은 버림

@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from rag.answer import ask, Answer   # 1주차에 만든 함수와 응답 모양을 그대로 재사용
+from rag.usage import try_consume    # 하루 질문 수 제한
 
 app = FastAPI(title="쏘나타 카탈로그 상담 API")
 
@@ -24,6 +25,9 @@ def health():
 @app.post("/chat", response_model=Answer)   # 응답 모양 = 1주차의 Answer(answer, sources)
 def chat(req: ChatRequest):
     # req: FastAPI가 요청 JSON을 ChatRequest로 자동 변환 + 검증해서 넣어줌
+    if not try_consume():
+        # 429 Too Many Requests: 오늘 한도를 다 씀. Claude를 부르지 않으니 비용 0
+        raise HTTPException(status_code=429, detail="오늘 데모 사용량을 모두 썼습니다. 내일 다시 시도해 주세요.")
     try:
         return ask(req.question)            # 검색 → Claude → Answer 객체
     except Exception as e:

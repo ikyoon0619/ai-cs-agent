@@ -91,6 +91,20 @@ def available_slots(branch, day):
     return [t for t in SLOT_TIMES if t not in taken and not is_pre_booked(branch, day, t)]
 
 
+def validate_booking(branch, date, time, customer_name):
+    """예약 가능한지 검사. 안 되면 ValueError.
+    상담원에게 승인을 묻기 "전"에도 부른다 → 어차피 안 되는 예약으로 상담원을 귀찮게 하지 않음."""
+    if branch not in BRANCH_INFO:
+        raise ValueError(f"없는 지점입니다: {branch}")
+    day = parse_date(date)
+    name = customer_name.strip()
+    if not name or len(name) > 20:
+        raise ValueError("예약자 이름은 1~20자로 주세요.")
+    if time not in available_slots(branch, day):
+        raise ValueError(f"{branch} {day} {time} 은(는) 예약할 수 없는 시간입니다. 가능한 시간을 먼저 조회하세요.")
+    return day, name
+
+
 # ---------------------------------------------------------------------------
 # 도구 (Claude가 부르는 함수)
 # ---------------------------------------------------------------------------
@@ -156,6 +170,7 @@ def get_test_drive_slots(branch: Branch, date: str) -> str:
 def book_test_drive(branch: Branch, date: str, time: str, customer_name: str) -> str:
     """시승을 예약한다. 가상 예약이며 서버 메모리에만 저장된다.
     고객이 지점, 날짜, 시간, 이름을 모두 확인하고 예약하겠다고 말한 뒤에만 호출한다.
+    호출하면 상담원 승인을 거친 뒤에 실제로 예약된다.
 
     Args:
         branch: 시승 지점
@@ -163,18 +178,15 @@ def book_test_drive(branch: Branch, date: str, time: str, customer_name: str) ->
         time: 시간 (HH:MM). get_test_drive_slots 에서 나온 시간 중 하나
         customer_name: 예약자 이름
     """
-    day = parse_date(date)
-    name = customer_name.strip()
-    if not name or len(name) > 20:
-        raise ValueError("예약자 이름은 1~20자로 주세요.")
-    if time not in available_slots(branch, day):
-        raise ValueError(f"{branch} {day} {time} 은(는) 예약할 수 없는 시간입니다. 가능한 시간을 먼저 조회하세요.")
-
+    day, name = validate_booking(branch, date, time, customer_name)
     booking_id = "TD-" + uuid.uuid4().hex[:6].upper()
     BOOKINGS[booking_id] = {"branch": branch, "date": day, "time": time, "name": name}
     return (f"예약 완료 (가상). 예약번호 {booking_id}: {name}님, "
             f"{branch}({BRANCH_INFO[branch]}) {day} {time}")
 
+
+# 실행 전에 상담원 승인이 필요한 도구 (되돌리기 어려운 "행동"을 하는 도구)
+NEEDS_APPROVAL = {"book_test_drive"}
 
 TOOLS = [search_catalog, check_inventory, get_test_drive_slots, book_test_drive]
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}

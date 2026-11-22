@@ -6,12 +6,16 @@
 # 핵심: Claude는 함수를 "직접" 실행하지 않는다.
 #       "check_inventory를 이 인자로 불러 줘"라고 요청(tool_call)만 하고, 실행은 우리 코드가 한다.
 import re
+import uuid
 from datetime import datetime
+from typing import Optional
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from pydantic import BaseModel, Field
 
-from rag.graph import MAX_STEPS, build_graph   # noqa: F401  (MAX_STEPS는 테스트에서 씀)
+from langgraph.types import Command
+
+from rag.graph import CHECKPOINTER, MAX_STEPS, build_graph   # noqa: F401  (MAX_STEPS는 테스트에서 씀)
 from rag.llm import get_llm
 from rag.tools import KST, TOOL_LABELS, TOOLS
 
@@ -27,6 +31,7 @@ SYSTEM_PROMPT = """너는 쏘나타 디 엣지 판매 상담원이다. 오늘은
 - 재고나 출고 질문은 check_inventory를 쓴다.
 - 시승은 get_test_drive_slots로 가능한 시간을 먼저 보여 준다.
   book_test_drive는 고객이 지점, 날짜, 시간, 이름을 확정하고 예약해 달라고 한 뒤에만 부른다.
+  예약은 상담원이 승인해야 확정된다. 거절되면 고객에게 알리고 다른 시간이나 지점을 제안한다.
   빠진 정보가 있으면 도구를 부르지 말고 고객에게 물어본다.
 - 재고와 시승 정보는 데모용 가상 데이터라는 점을 답에 한 번 밝힌다.
 - 쏘나타와 관계없는 질문은 정중히 거절한다.
@@ -40,10 +45,18 @@ class Turn(BaseModel):
     content: str = Field(max_length=2000)
 
 
+class PendingApproval(BaseModel):
+    # 상담원 승인을 기다리며 멈춰 있는 요청. thread_id로 나중에 이어서 실행한다
+    thread_id: str = Field(description="멈춘 그래프를 이어서 실행할 때 쓰는 id")
+    tool: str = Field(description="승인이 필요한 도구 이름")
+    args: dict = Field(description="도구에 넘길 인자 (지점, 날짜, 시간, 이름)")
+
+
 class AgentAnswer(BaseModel):
     answer: str = Field(description="최종 답변")
     sources: list[str] = Field(default_factory=list, description="답에 인용한 카탈로그 페이지")
     tools_used: list[str] = Field(default_factory=list, description="이번 답에 사용한 도구 이름 (순서대로)")
+    pending: Optional[PendingApproval] = Field(default=None, description="승인 대기 중이면 그 내용, 아니면 null")
 
 
 def get_agent_llm():
@@ -74,9 +87,28 @@ def cited_pages(answer, docs):
 
 
 def run_agent(question, history=()):
-    # 그래프 실행: 처음 상태(메시지 목록)를 넣으면 END까지 돌고 마지막 상태를 돌려준다
+    # 질문마다 새 thread_id. 승인 때문에 멈추면 이 id로 나중에 이어서 실행한다
+    thread_id = uuid.uuid4().hex
+    config = {"configurable": {"thread_id": thread_id}}
     graph = build_graph(get_agent_llm())
-    state = graph.invoke({"messages": build_messages(question, history), "steps": 0})
+    # 그래프 실행: 처음 상태를 넣으면 END까지 돌거나, interrupt()에서 멈춘 상태를 돌려준다
+    state = graph.invoke({"messages": build_messages(question, history), "steps": 0}, config)
+    return summarize(thread_id, state)
+
+
+def resume_agent(thread_id, approved):
+    """상담원이 승인(approved=True) 또는 거절한 뒤, 멈춘 그래프를 이어서 실행한다."""
+    config = {"configurable": {"thread_id": thread_id}}
+    graph = build_graph(get_agent_llm())
+    if not graph.get_state(config).interrupts:          # 이미 처리했거나 없는 id
+        raise LookupError("승인을 기다리는 요청이 없습니다.")
+    # Command(resume=값): 멈춘 interrupt()가 이 값을 돌려주면서 실행이 이어진다
+    state = graph.invoke(Command(resume={"approved": approved}), config)
+    return summarize(thread_id, state)
+
+
+def summarize(thread_id, state):
+    """그래프가 남긴 상태 → 화면/API에 줄 AgentAnswer"""
     messages = state["messages"]
 
     # 그래프가 남긴 메시지에서 "사용한 도구"와 "검색된 청크"를 모은다
@@ -88,9 +120,20 @@ def run_agent(question, history=()):
             retrieved_docs += msg.artifact
 
     last = messages[-1]
-    if last.tool_calls:                   # MAX_STEPS에서 끊겨서 도구 요청이 남은 채로 끝남
+    unfinished = len(last.tool_calls) if isinstance(last, AIMessage) else 0
+    done_tools = tools_used[:len(tools_used) - unfinished]   # 아직 실행 안 된 요청은 빼기
+
+    interrupts = state.get("__interrupt__")
+    if interrupts:                        # 상담원 승인 대기 중 (상태는 CHECKPOINTER에 남겨 둔다)
+        info = interrupts[0].value        # ask_approval()이 interrupt()에 넘긴 {"tool", "args"}
+        return AgentAnswer(answer="예약 요청을 상담원에게 보냈어요. 승인되면 바로 확정해 드릴게요.",
+                           tools_used=done_tools,
+                           pending=PendingApproval(thread_id=thread_id, **info))
+
+    CHECKPOINTER.delete_thread(thread_id)   # 끝난 대화는 메모리에서 지운다
+    if unfinished:                        # MAX_STEPS에서 끊겨서 도구 요청이 남은 채로 끝남
         return AgentAnswer(answer="질문을 처리하는 데 단계가 너무 많이 필요합니다. 질문을 나눠서 다시 물어봐 주세요.",
-                           tools_used=tools_used[:-len(last.tool_calls)])   # 실행 안 된 요청은 빼기
+                           tools_used=done_tools)
     answer = last.text.strip() or "답변을 만들지 못했습니다."
     return AgentAnswer(answer=answer, sources=cited_pages(answer, retrieved_docs), tools_used=tools_used)
 

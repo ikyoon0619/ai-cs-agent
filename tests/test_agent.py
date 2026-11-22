@@ -108,3 +108,73 @@ def test_agent_parallel_tool_calls(monkeypatch):
     result = agent.run_agent("LPG랑 하이브리드 재고")
     assert result.tools_used == ["check_inventory", "check_inventory"]
     assert [m.tool_call_id for m in fake.calls[1][-2:]] == ["a", "b"]
+
+
+# ---------------------------------------------------------------------------
+# 상담원 승인 (human-in-the-loop)
+# ---------------------------------------------------------------------------
+def booking_args():
+    from datetime import timedelta
+    day = tools.today_kst() + timedelta(days=1)
+    time = tools.available_slots("강남점", day)[0]
+    return {"branch": "강남점", "date": day.isoformat(), "time": time, "customer_name": "홍길동"}
+
+
+def test_booking_pauses_then_approved(monkeypatch):
+    tools.BOOKINGS.clear()
+    args = booking_args()
+    fake = FakeLLM([
+        AIMessage("", tool_calls=[tool_call("book_test_drive", args, "b1")]),
+        AIMessage("예약이 확정됐습니다. (가상 데이터)"),
+    ])
+    monkeypatch.setattr(agent, "get_agent_llm", lambda: fake)
+
+    # ① 첫 실행: 예약 직전에 멈춤. 아직 예약 안 됨
+    first = agent.run_agent("내일 강남점 예약해줘")
+    assert first.pending is not None and first.pending.tool == "book_test_drive"
+    assert first.pending.args == args
+    assert tools.BOOKINGS == {}
+    assert len(fake.calls) == 1                     # Claude는 한 번만 불림
+
+    # ② 상담원 승인 → 멈춘 곳부터 이어서 실행 → 예약 1건
+    second = agent.resume_agent(first.pending.thread_id, approved=True)
+    assert second.pending is None
+    assert second.tools_used == ["book_test_drive"]
+    assert len(tools.BOOKINGS) == 1                 # 다시 실행돼도 예약은 딱 한 번
+    assert "예약 완료" in fake.calls[1][-1].content
+
+    # ③ 끝난 요청은 다시 승인할 수 없음 (메모리에서도 지워짐)
+    import pytest
+    with pytest.raises(LookupError):
+        agent.resume_agent(first.pending.thread_id, approved=True)
+    tools.BOOKINGS.clear()
+
+
+def test_booking_rejected(monkeypatch):
+    tools.BOOKINGS.clear()
+    fake = FakeLLM([
+        AIMessage("", tool_calls=[tool_call("book_test_drive", booking_args(), "b1")]),
+        AIMessage("죄송합니다. 다른 시간을 골라 주세요."),
+    ])
+    monkeypatch.setattr(agent, "get_agent_llm", lambda: fake)
+
+    first = agent.run_agent("예약해줘")
+    second = agent.resume_agent(first.pending.thread_id, approved=False)
+    assert tools.BOOKINGS == {}                     # 거절하면 예약 안 됨
+    rejected = fake.calls[1][-1]
+    assert rejected.status == "error" and "승인하지 않았습니다" in rejected.content
+    assert second.answer.startswith("죄송합니다")
+
+
+def test_invalid_booking_skips_approval(monkeypatch):
+    # 지난 날짜처럼 어차피 안 되는 예약은 상담원에게 묻지 않고 바로 Claude에게 에러를 돌려준다
+    bad = {"branch": "강남점", "date": "2000-01-01", "time": "10:00", "customer_name": "홍길동"}
+    fake = FakeLLM([
+        AIMessage("", tool_calls=[tool_call("book_test_drive", bad, "b1")]),
+        AIMessage("내일부터 예약할 수 있어요."),
+    ])
+    monkeypatch.setattr(agent, "get_agent_llm", lambda: fake)
+
+    result = agent.run_agent("2000년 1월 1일 예약")
+    assert result.pending is None
+    assert fake.calls[1][-1].status == "error"

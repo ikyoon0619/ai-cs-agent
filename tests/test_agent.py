@@ -180,12 +180,34 @@ def test_invalid_booking_skips_approval(monkeypatch):
     assert fake.calls[1][-1].status == "error"
 
 
-def test_history_keeps_tool_record():
-    # 이전 답이 도구로 만든 답이면, 그 사실이 Claude에게 넘어가야 한다
-    # (안 그러면 "아까 재고는 조회 안 하고 답했다"고 잘못 사과함)
+def test_history_replays_tool_calls():
+    # 이전 답이 도구로 만든 답이면, 그때의 도구 호출 → 결과 → 답을 그대로 다시 보여 줘야 한다
+    # (글만 넘기면 Claude가 "아까 재고는 조회 안 하고 답했다"고 잘못 사과함)
     history = [{"role": "user", "content": "하이브리드 재고 있어?"},
-               {"role": "assistant", "content": "4대 있습니다.", "tools": ["check_inventory", "check_inventory"]},
-               {"role": "assistant", "content": "안녕하세요", "tools": ["없는도구"]}]
+               {"role": "assistant", "content": "4대 있습니다.",
+                "tools": [{"name": "check_inventory", "args": {"powertrain": "하이브리드"}, "result": "재고 4대"},
+                          {"name": "없는도구", "args": {}, "result": "x"}]}]
     messages = agent.build_messages("시승 가능해?", history)
-    assert messages[2].content.endswith("[시스템 기록: 사용한 도구 check_inventory]")
-    assert messages[3].content == "안녕하세요"          # 모르는 도구 이름은 버림
+    # system, user, assistant(도구 요청), tool(결과), assistant(답), user(이번 질문)
+    kinds = [type(m).__name__ for m in messages]
+    assert kinds == ["SystemMessage", "HumanMessage", "AIMessage", "ToolMessage", "AIMessage", "HumanMessage"]
+    assert messages[2].tool_calls[0]["name"] == "check_inventory"      # 모르는 도구는 버림
+    assert messages[3].content == "재고 4대" and messages[3].tool_call_id == messages[2].tool_calls[0]["id"]
+    assert messages[4].content == "4대 있습니다."
+
+
+def test_answer_steps_only_from_current_question(monkeypatch):
+    # 다시 넣어 준 이전 대화의 도구 호출은 이번 답의 tools_used/steps에 섞이면 안 된다
+    history = [{"role": "user", "content": "재고?"},
+               {"role": "assistant", "content": "있어요",
+                "tools": [{"name": "check_inventory", "args": {"powertrain": "LPG"}, "result": "2대"}]}]
+    fake = FakeLLM([
+        AIMessage("", tool_calls=[tool_call("check_inventory", {"powertrain": "하이브리드"}, "c1")]),
+        AIMessage("하이브리드도 있어요."),
+    ])
+    monkeypatch.setattr(agent, "get_agent_llm", lambda: fake)
+
+    result = agent.run_agent("하이브리드는?", history)
+    assert result.tools_used == ["check_inventory"]
+    assert len(result.steps) == 1 and result.steps[0].args == {"powertrain": "하이브리드"}
+    assert "하이브리드" in result.steps[0].result

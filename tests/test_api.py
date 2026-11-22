@@ -26,7 +26,7 @@ def test_chat_ok(monkeypatch):
                                                  {"role": "assistant", "content": "안녕하세요"}]})
     assert res.status_code == 200
     assert res.json() == {"answer": "가짜 답: 연비? (이전 대화 2개)",
-                          "sources": ["27"], "tools_used": ["search_catalog"], "pending": None}
+                          "sources": ["27"], "tools_used": ["search_catalog"], "steps": [], "pending": None}
 
 
 def test_chat_empty_question():

@@ -40,7 +40,7 @@ def save_answer(result):
     # 봇 답변을 기록에 저장하고, 승인 대기면 기억해 둔다. 그린 다음 st.rerun()으로 화면을 새로 그린다
     st.session_state.messages.append({"role": "assistant", "content": result.answer,
                                       "sources": result.sources, "tools": tool_labels(result.tools_used),
-                                      "tool_names": result.tools_used})   # 다음 질문 때 Claude에게 넘김
+                                      "steps": [step.model_dump() for step in result.steps]})   # 다음 질문 때 Claude에게 넘김
     st.session_state.pending = result.pending
 
 
@@ -102,7 +102,7 @@ if question:
 
     # 3. 사용자 질문: 화면에 그리고 기록에 저장
     #    에이전트에게 넘길 이전 대화는 질문을 저장하기 "전"의 기록이다
-    history = [{"role": m["role"], "content": m["content"], "tools": m.get("tool_names", [])}
+    history = [{"role": m["role"], "content": m["content"], "tools": m.get("steps", [])}
                for m in st.session_state.messages]
     show_message("user", question)
     st.session_state.messages.append({"role": "user", "content": question})

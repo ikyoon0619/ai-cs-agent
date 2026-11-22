@@ -7,7 +7,7 @@ Claude가 질문을 보고 **도구를 골라 씁니다(Tool Use)**: 카탈로�
 **데모: https://ai-cs-agent.onrender.com**
 (무료 서버라 한동안 접속이 없으면 잠듭니다. 첫 접속은 30~60초 걸릴 수 있어요. 하루 질문 수에 한도가 있습니다.)
 
-![screenshot](docs/screenshot.png)
+<img src="docs/screenshot.png" width="600" alt="데모 화면: 재고 조회와 시승 시간 조회 도구를 쓴 답변, 시승 예약 전 상담원 승인 카드">
 
 ## 구조
 

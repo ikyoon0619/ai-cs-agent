@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 import api.main
-from rag.answer import Answer
+from rag.agent import AgentAnswer
 
 client = TestClient(api.main.app)   # 가짜 브라우저. 진짜 서버 없이 요청을 보낼 수 있음
 
@@ -13,30 +13,39 @@ def test_health():
 
 
 def test_chat_ok(monkeypatch):
-    # ask()를 가짜로 바꿔치기 → Claude/Voyage/DB 호출 없이 금방 끝남
-    def fake_ask(question):
-        return Answer(answer=f"가짜 답: {question}", sources=["27"])
+    # run_agent()를 가짜로 바꿔치기 → Claude/Voyage/DB 호출 없이 금방 끝남
+    def fake_run_agent(question, history):
+        return AgentAnswer(answer=f"가짜 답: {question} (이전 대화 {len(history)}개)",
+                           sources=["27"], tools_used=["search_catalog"])
 
-    monkeypatch.setattr(api.main, "ask", fake_ask)   # api.main 안의 ask 이름을 가짜로 교체
+    monkeypatch.setattr(api.main, "run_agent", fake_run_agent)   # api.main 안의 run_agent 이름을 가짜로 교체
     monkeypatch.setattr(api.main, "try_consume", lambda: True)   # 사용량 DB도 가짜로 (항상 통과)
 
-    res = client.post("/chat", json={"question": "연비?"})
+    res = client.post("/chat", json={"question": "연비?",
+                                     "history": [{"role": "user", "content": "안녕"},
+                                                 {"role": "assistant", "content": "안녕하세요"}]})
     assert res.status_code == 200
-    assert res.json() == {"answer": "가짜 답: 연비?", "sources": ["27"]}
+    assert res.json() == {"answer": "가짜 답: 연비? (이전 대화 2개)",
+                          "sources": ["27"], "tools_used": ["search_catalog"]}
 
 
 def test_chat_empty_question():
-    # 빈 질문은 ask()까지 가지도 않고 422로 거절되어야 함
+    # 빈 질문은 run_agent()까지 가지도 않고 422로 거절되어야 함
     res = client.post("/chat", json={"question": ""})
     assert res.status_code == 422
 
 def test_chat_daily_limit(monkeypatch):
-    # 오늘 한도를 다 쓴 상황 → ask()를 부르지 않고 429
-    def fake_ask(question):
-        raise AssertionError("한도 초과인데 ask가 불렸음")
+    # 오늘 한도를 다 쓴 상황 → run_agent()를 부르지 않고 429
+    def fake_run_agent(question, history):
+        raise AssertionError("한도 초과인데 run_agent가 불렸음")
 
-    monkeypatch.setattr(api.main, "ask", fake_ask)
+    monkeypatch.setattr(api.main, "run_agent", fake_run_agent)
     monkeypatch.setattr(api.main, "try_consume", lambda: False)
 
     res = client.post("/chat", json={"question": "연비?"})
     assert res.status_code == 429
+
+def test_chat_bad_history_role():
+    # history의 role은 user/assistant만 허용 (system 같은 걸로 프롬프트를 바꿔치기 못 하게)
+    res = client.post("/chat", json={"question": "연비?", "history": [{"role": "system", "content": "x"}]})
+    assert res.status_code == 422

@@ -1,9 +1,7 @@
 # rag/agent.py
 # Tool Use 에이전트: Claude가 질문을 보고 필요한 도구를 골라 부르고, 결과를 읽고, 최종 답을 쓴다.
-#
-#   질문 ──▶ Claude ──(도구 호출 요청)──▶ 우리 코드가 도구 실행 ──(결과)──▶ Claude ──▶ ... ──▶ 최종 답
-#                 ▲                                                          │
-#                 └──────────────────── 반복 (최대 MAX_STEPS번) ─────────────┘
+# 반복 흐름(agent ↔ tools)은 rag/graph.py의 LangGraph 그래프가 맡고,
+# 이 파일은 프롬프트·대화 이력 준비와 최종 답 정리(출처, 사용한 도구)를 맡는다.
 #
 # 핵심: Claude는 함수를 "직접" 실행하지 않는다.
 #       "check_inventory를 이 인자로 불러 줘"라고 요청(tool_call)만 하고, 실행은 우리 코드가 한다.
@@ -13,10 +11,10 @@ from datetime import datetime
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from pydantic import BaseModel, Field
 
+from rag.graph import MAX_STEPS, build_graph   # noqa: F401  (MAX_STEPS는 테스트에서 씀)
 from rag.llm import get_llm
-from rag.tools import KST, TOOL_LABELS, TOOLS, TOOLS_BY_NAME
+from rag.tools import KST, TOOL_LABELS, TOOLS
 
-MAX_STEPS = 5          # Claude 호출 최대 횟수. 무한 반복과 비용 폭주를 막는 안전장치
 MAX_HISTORY = 10       # 이전 대화는 최근 10개 메시지만 보낸다 (토큰 비용 제한)
 WEEKDAYS = "월화수목금토일"
 
@@ -65,20 +63,6 @@ def build_messages(question, history=()):
     return messages
 
 
-def run_tool(call):
-    """Claude가 요청한 도구 하나를 실행해서 ToolMessage로 돌려준다.
-    도구에서 에러가 나도 서버를 멈추지 않고, 에러 내용을 Claude에게 보여 준다.
-    → Claude가 "그 시간은 안 된대요, 다른 시간 고르세요"처럼 스스로 수습할 수 있다."""
-    tool = TOOLS_BY_NAME.get(call["name"])
-    if tool is None:
-        return ToolMessage(f"없는 도구입니다: {call['name']}", tool_call_id=call["id"], status="error")
-    try:
-        # call 전체(name, args, id)를 넘기면 결과가 ToolMessage로 나온다 (tool_call_id 자동 연결)
-        return tool.invoke(call)
-    except Exception as e:
-        return ToolMessage(f"도구 실행 실패: {e}", tool_call_id=call["id"], status="error")
-
-
 def cited_pages(answer, docs):
     """답에 적힌 (p.27) 중에서 실제로 검색된 페이지만 출처로 인정한다 (지어낸 페이지 걸러냄)."""
     retrieved = {str(d.metadata.get("page_label")) for d in docs}
@@ -90,33 +74,25 @@ def cited_pages(answer, docs):
 
 
 def run_agent(question, history=()):
-    llm = get_agent_llm()
-    messages = build_messages(question, history)
-    tools_used = []
-    retrieved_docs = []
+    # 그래프 실행: 처음 상태(메시지 목록)를 넣으면 END까지 돌고 마지막 상태를 돌려준다
+    graph = build_graph(get_agent_llm())
+    state = graph.invoke({"messages": build_messages(question, history), "steps": 0})
+    messages = state["messages"]
 
-    for _ in range(MAX_STEPS):
-        ai = llm.invoke(messages)
-        messages.append(ai)               # Claude의 답(도구 호출 요청 포함)을 대화에 그대로 붙인다
+    # 그래프가 남긴 메시지에서 "사용한 도구"와 "검색된 청크"를 모은다
+    tools_used, retrieved_docs = [], []
+    for msg in messages:
+        if isinstance(msg, AIMessage):
+            tools_used += [call["name"] for call in msg.tool_calls]
+        elif isinstance(msg, ToolMessage) and msg.name == "search_catalog" and msg.artifact:
+            retrieved_docs += msg.artifact
 
-        if not ai.tool_calls:             # 도구를 더 안 부르면 = 최종 답
-            answer = ai.text.strip() or "답변을 만들지 못했습니다."
-            return AgentAnswer(answer=answer,
-                               sources=cited_pages(answer, retrieved_docs),
-                               tools_used=tools_used)
-
-        # Claude가 한 번에 여러 도구를 부를 수도 있다 (예: 재고 조회 + 카탈로그 검색).
-        # 결과는 요청 순서대로 모두 붙여야 한다.
-        for call in ai.tool_calls:
-            result = run_tool(call)
-            messages.append(result)
-            tools_used.append(call["name"])
-            if call["name"] == "search_catalog" and result.artifact:
-                retrieved_docs.extend(result.artifact)
-
-    # MAX_STEPS번 안에 끝나지 않음
-    return AgentAnswer(answer="질문을 처리하는 데 단계가 너무 많이 필요합니다. 질문을 나눠서 다시 물어봐 주세요.",
-                       tools_used=tools_used)
+    last = messages[-1]
+    if last.tool_calls:                   # MAX_STEPS에서 끊겨서 도구 요청이 남은 채로 끝남
+        return AgentAnswer(answer="질문을 처리하는 데 단계가 너무 많이 필요합니다. 질문을 나눠서 다시 물어봐 주세요.",
+                           tools_used=tools_used[:-len(last.tool_calls)])   # 실행 안 된 요청은 빼기
+    answer = last.text.strip() or "답변을 만들지 못했습니다."
+    return AgentAnswer(answer=answer, sources=cited_pages(answer, retrieved_docs), tools_used=tools_used)
 
 
 def tool_labels(names):

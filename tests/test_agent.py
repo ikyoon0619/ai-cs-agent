@@ -67,13 +67,15 @@ def test_agent_tool_error_goes_back_to_claude(monkeypatch):
 
 
 def test_agent_stops_after_max_steps(monkeypatch):
-    loop = AIMessage("", tool_calls=[tool_call("check_inventory", {"powertrain": "LPG"}, "c")])
-    fake = FakeLLM([loop] * agent.MAX_STEPS)
+    # 매번 새 메시지 객체를 만든다 (LangGraph는 같은 id의 메시지를 "교체"하므로, 진짜 Claude처럼 매번 달라야 함)
+    fake = FakeLLM([AIMessage("", tool_calls=[tool_call("check_inventory", {"powertrain": "LPG"}, f"c{i}")])
+                    for i in range(agent.MAX_STEPS)])
     monkeypatch.setattr(agent, "get_agent_llm", lambda: fake)
 
     result = agent.run_agent("계속 도구만 부르는 경우")
     assert len(fake.calls) == agent.MAX_STEPS        # Claude 호출이 상한에서 멈춤
     assert "단계가 너무 많이" in result.answer
+    assert result.tools_used == ["check_inventory"] * (agent.MAX_STEPS - 1)   # 마지막 요청은 실행 안 됨
 
 
 def test_history_is_trimmed():
@@ -82,3 +84,27 @@ def test_history_is_trimmed():
     # system 1 + 최근 이력 MAX_HISTORY개 + 이번 질문 1
     assert len(messages) == 1 + agent.MAX_HISTORY + 1
     assert messages[-2].content == "m29"
+
+
+def test_graph_shape():
+    # 그래프 모양: START → agent → (tools ↔ agent) → END
+    from rag.graph import build_graph
+    g = build_graph(FakeLLM([])).get_graph()
+    edges = {(e.source, e.target) for e in g.edges}
+    assert ("__start__", "agent") in edges
+    assert ("agent", "tools") in edges and ("tools", "agent") in edges
+    assert ("agent", "__end__") in edges
+
+
+def test_agent_parallel_tool_calls(monkeypatch):
+    # Claude가 한 번에 도구 2개를 부르면 둘 다 실행되고, 결과 2개가 순서대로 붙는다
+    fake = FakeLLM([
+        AIMessage("", tool_calls=[tool_call("check_inventory", {"powertrain": "LPG"}, "a"),
+                                  tool_call("check_inventory", {"powertrain": "하이브리드"}, "b")]),
+        AIMessage("둘 다 있습니다."),
+    ])
+    monkeypatch.setattr(agent, "get_agent_llm", lambda: fake)
+
+    result = agent.run_agent("LPG랑 하이브리드 재고")
+    assert result.tools_used == ["check_inventory", "check_inventory"]
+    assert [m.tool_call_id for m in fake.calls[1][-2:]] == ["a", "b"]

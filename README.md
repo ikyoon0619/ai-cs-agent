@@ -31,13 +31,20 @@ flowchart LR
     G --> H[답변 + 출처 페이지<br/>+ 사용한 도구]
 ```
 
-### Tool Use 반복문 (`rag/agent.py`)
-1. 질문과 도구 설명서(`bind_tools`)를 Claude에 보냄
-2. Claude가 `tool_calls`를 돌려주면 코드가 그 함수를 실행하고 결과를 `ToolMessage`로 붙여 다시 보냄
-3. Claude가 도구를 더 부르지 않으면 그 글이 최종 답. 최대 5번에서 끊음 (비용·무한 반복 방지)
+### 에이전트 그래프 (LangGraph, `rag/graph.py`)
+```mermaid
+flowchart TD
+    S([START]) --> A[agent<br/>Claude + bind_tools]
+    A -.->|tool_calls 있음| T[tools<br/>도구 실행 → ToolMessage]
+    T --> A
+    A -.->|tool_calls 없음 / 5단계 초과| E([END])
+```
+- **State**: 대화 메시지 목록(`add_messages`로 뒤에 붙이기) + Claude 호출 횟수
+- **agent 노드**: Claude 호출. **tools 노드**: 요청된 도구를 순서대로 실행
+- **조건부 엣지**: 도구 요청이 있으면 tools로, 없거나 5단계를 넘으면 END (비용·무한 반복 방지)
 
 ## 기술 스택
-Python · LangChain(LCEL, Tool Calling) · Claude API · Voyage AI · PostgreSQL + pgvector · rank-bm25 · FastAPI · Streamlit · pytest · Docker · Render · Neon
+Python · LangChain(LCEL, Tool Calling) · LangGraph · Claude API · Voyage AI · PostgreSQL + pgvector · rank-bm25 · FastAPI · Streamlit · pytest · Docker · Render · Neon
 
 ## 주요 설계
 - **Tool Use**: 도구 4개를 `@tool`로 정의 (docstring + 타입 힌트 → JSON 스키마). `Literal`로 선택지를 enum으로 고정해 잘못된 인자를 줄임
@@ -80,10 +87,11 @@ uvicorn api.main:app --reload     # API 서버 (http://localhost:8000/docs)
 pytest -q tests                   # 테스트
 python -m eval.run_retrieval hybrid   # 검색 품질 측정
 python -m rag.agent               # 에이전트에 예시 질문 3개 (도구 선택 확인)
+python -m rag.graph               # 그래프 구조를 mermaid로 출력
 ```
 
 ## 한계와 다음 계획
 - PDF 표가 줄 단위로 풀려 숫자의 칸 구분이 어려움
 - 평가셋이 23문항으로 작아 1문항 차이는 노이즈일 수 있음
 - 재고와 시승 데이터는 가상(mock)이고, 예약은 서버 메모리에만 저장되어 재시작하면 사라짐
-- 다음: LangGraph 에이전트로 옮기기 → 시승 예약 전 상담원 승인(human-in-the-loop)
+- 다음: 시승 예약(`book_test_drive`) 실행 전에 그래프를 멈추고 상담원 승인 받기 (human-in-the-loop)

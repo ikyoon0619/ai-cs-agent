@@ -13,16 +13,27 @@
 #
 # 이전 PR의 for 반복문과 하는 일은 같다. 그래프로 바꾸면 좋은 점:
 #   - 흐름이 그림(mermaid)으로 보인다
-#   - 다음 단계에서 "tools 노드 실행 전에 멈추고 상담원 승인 받기"(interrupt)를 붙일 수 있다
+#   - "도구 실행 전에 멈추고 상담원 승인 받기"(interrupt)를 붙일 수 있다 ← 아래 tools_node
+#
+# 상담원 승인(human-in-the-loop) 흐름
+#   tools 노드에서 book_test_drive 요청을 만나면 interrupt()로 그래프를 "일시정지"한다.
+#   그때까지의 상태는 checkpointer(CHECKPOINTER)에 thread_id 이름으로 저장된다.
+#   상담원이 승인/거절하면 Command(resume=...)로 같은 thread_id를 다시 실행 → 멈춘 곳부터 이어간다.
 from typing import Annotated, TypedDict
 
 from langchain_core.messages import AnyMessage, ToolMessage
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
+from langgraph.types import interrupt
 
-from rag.tools import TOOLS_BY_NAME
+from rag.tools import NEEDS_APPROVAL, TOOLS_BY_NAME, validate_booking
 
 MAX_STEPS = 5          # Claude 호출 최대 횟수. 무한 반복과 비용 폭주를 막는 안전장치
+
+# 멈춘 그래프의 상태를 보관하는 곳. 서버 메모리라서 재시작하면 대기 중인 승인은 사라진다 (데모용).
+# 실제 서비스라면 PostgresSaver 같은 DB 저장소를 쓴다.
+CHECKPOINTER = InMemorySaver()
 
 
 class AgentState(TypedDict):
@@ -46,7 +57,28 @@ def run_tool(call):
         return ToolMessage(f"도구 실행 실패: {e}", tool_call_id=call["id"], status="error")
 
 
-def build_graph(llm):
+def ask_approval(call):
+    """승인이 필요한 도구면 그래프를 멈추고 상담원 답을 기다린다.
+    돌려주는 값: None(그대로 실행) 또는 ToolMessage(실행하지 않고 Claude에게 보낼 결과)."""
+    if call["name"] not in NEEDS_APPROVAL:
+        return None
+    args = call["args"]
+    try:
+        validate_booking(**args)               # 어차피 안 되는 예약이면 상담원에게 묻지 않음
+    except Exception as e:
+        return ToolMessage(f"도구 실행 실패: {e}", tool_call_id=call["id"], name=call["name"], status="error")
+
+    # ── 여기서 그래프가 멈춘다 ──
+    # 처음 실행: interrupt()가 값을 밖으로 내보내고 실행을 중단 (graph.invoke 결과에 __interrupt__로 나옴)
+    # 다시 실행(resume): interrupt()가 상담원 답 {"approved": True/False}를 돌려준다
+    decision = interrupt({"tool": call["name"], "args": args})
+    if decision.get("approved"):
+        return None
+    return ToolMessage("상담원이 이 예약을 승인하지 않았습니다. 고객에게 알리고 다른 시간이나 지점을 제안하세요.",
+                       tool_call_id=call["id"], name=call["name"], status="error")
+
+
+def build_graph(llm, checkpointer=CHECKPOINTER):
     """llm: bind_tools까지 끝난 모델. 테스트에서는 가짜 LLM을 넣는다."""
 
     def agent_node(state: AgentState):
@@ -56,7 +88,12 @@ def build_graph(llm):
     def tools_node(state: AgentState):
         # 마지막 메시지 = 방금 Claude가 보낸 도구 요청. 여러 개면 순서대로 모두 실행
         calls = state["messages"][-1].tool_calls
-        return {"messages": [run_tool(call) for call in calls]}
+        # ① 승인부터 전부 받는다. 주의: resume하면 이 노드가 "처음부터 다시" 실행된다.
+        #    그래서 예약 같은 실제 행동은 승인이 모두 끝난 ② 이후에만 해야 두 번 실행되지 않는다.
+        decided = [ask_approval(call) for call in calls]
+        # ② 실행: 거절/검증 실패한 건 그 결과를 쓰고, 나머지는 실제로 실행
+        return {"messages": [msg if msg is not None else run_tool(call)
+                             for call, msg in zip(calls, decided)]}
 
     def route(state: AgentState):
         # agent 다음에 어디로 갈지 정하는 조건부 엣지
@@ -73,7 +110,7 @@ def build_graph(llm):
     graph.add_edge(START, "agent")
     graph.add_conditional_edges("agent", route, ["tools", END])
     graph.add_edge("tools", "agent")         # 도구 결과를 들고 다시 Claude에게
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)   # checkpointer가 있어야 멈췄다 이어갈 수 있다
 
 
 if __name__ == "__main__":

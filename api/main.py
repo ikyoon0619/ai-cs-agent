@@ -5,7 +5,7 @@ import logging
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from rag.agent import AgentAnswer, Turn, run_agent   # Tool Use 에이전트 (검색 + 재고 + 시승)
+from rag.agent import AgentAnswer, Turn, resume_agent, run_agent   # Tool Use 에이전트 (검색 + 재고 + 시승)
 from rag.usage import try_consume    # 하루 질문 수 제한
 
 app = FastAPI(title="쏘나타 카탈로그 상담 API")
@@ -17,6 +17,12 @@ class ChatRequest(BaseModel):
     question: str = Field(min_length=1, max_length=500, description="고객 질문")
     # 이전 대화 (선택). 시승 예약처럼 여러 번 주고받아야 하는 대화를 이어가려고 받는다
     history: list[Turn] = Field(default_factory=list, max_length=20, description="이전 대화")
+
+
+class ApproveRequest(BaseModel):
+    # 상담원의 승인/거절. thread_id는 /chat 응답의 pending.thread_id
+    thread_id: str = Field(min_length=1, max_length=64)
+    approved: bool
 
 
 @app.get("/health")
@@ -35,3 +41,16 @@ def chat(req: ChatRequest):
     except Exception as e:
         logger.exception("chat 실패")   # 서버 터미널에 전체 에러(traceback) 기록
         raise HTTPException(status_code=503, detail=f"답변 생성 실패: {type(e).__name__}")
+
+
+@app.post("/chat/approve", response_model=AgentAnswer)
+def approve(req: ApproveRequest):
+    # 승인 대기로 멈춘 그래프를 이어서 실행한다. 질문 하나의 연장이라 하루 한도는 다시 세지 않는다.
+    # 데모라서 인증이 없다. 실제 서비스라면 상담원 계정만 부를 수 있게 막아야 한다.
+    try:
+        return resume_agent(req.thread_id, req.approved)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.exception("approve 실패")
+        raise HTTPException(status_code=503, detail=f"처리 실패: {type(e).__name__}")

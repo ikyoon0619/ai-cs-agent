@@ -26,7 +26,7 @@ def test_chat_ok(monkeypatch):
                                                  {"role": "assistant", "content": "안녕하세요"}]})
     assert res.status_code == 200
     assert res.json() == {"answer": "가짜 답: 연비? (이전 대화 2개)",
-                          "sources": ["27"], "tools_used": ["search_catalog"]}
+                          "sources": ["27"], "tools_used": ["search_catalog"], "pending": None}
 
 
 def test_chat_empty_question():
@@ -49,3 +49,21 @@ def test_chat_bad_history_role():
     # history의 role은 user/assistant만 허용 (system 같은 걸로 프롬프트를 바꿔치기 못 하게)
     res = client.post("/chat", json={"question": "연비?", "history": [{"role": "system", "content": "x"}]})
     assert res.status_code == 422
+
+
+def test_approve_unknown_thread(monkeypatch):
+    def fake_resume(thread_id, approved):
+        raise LookupError("승인을 기다리는 요청이 없습니다.")
+
+    monkeypatch.setattr(api.main, "resume_agent", fake_resume)
+    res = client.post("/chat/approve", json={"thread_id": "없는id", "approved": True})
+    assert res.status_code == 404
+
+
+def test_approve_ok(monkeypatch):
+    def fake_resume(thread_id, approved):
+        return AgentAnswer(answer="예약됐습니다" if approved else "거절됐습니다", tools_used=["book_test_drive"])
+
+    monkeypatch.setattr(api.main, "resume_agent", fake_resume)
+    res = client.post("/chat/approve", json={"thread_id": "t1", "approved": False})
+    assert res.status_code == 200 and res.json()["answer"] == "거절됐습니다"

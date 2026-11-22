@@ -2,6 +2,7 @@
 
 자동차 카탈로그 PDF를 근거로 고객 질문에 답하고, **근거 페이지를 함께 보여 주는** RAG 상담 에이전트입니다.
 Claude가 질문을 보고 **도구를 골라 씁니다(Tool Use)**: 카탈로그 검색, 재고 조회, 시승 시간 조회, 시승 예약.
+시승 예약처럼 실제 행동을 하는 도구는 **상담원이 승인해야 실행됩니다(human-in-the-loop)**.
 
 **데모: https://ai-cs-agent.onrender.com**
 (무료 서버라 한동안 접속이 없으면 잠듭니다. 첫 접속은 30~60초 걸릴 수 있어요. 하루 질문 수에 한도가 있습니다.)
@@ -36,12 +37,18 @@ flowchart LR
 flowchart TD
     S([START]) --> A[agent<br/>Claude + bind_tools]
     A -.->|tool_calls 있음| T[tools<br/>도구 실행 → ToolMessage]
+    T -->|book_test_drive면| P{{interrupt<br/>상담원 승인 대기}}
+    P -->|승인: 예약 실행 / 거절: 거절 결과| T
     T --> A
     A -.->|tool_calls 없음 / 5단계 초과| E([END])
 ```
 - **State**: 대화 메시지 목록(`add_messages`로 뒤에 붙이기) + Claude 호출 횟수
 - **agent 노드**: Claude 호출. **tools 노드**: 요청된 도구를 순서대로 실행
 - **조건부 엣지**: 도구 요청이 있으면 tools로, 없거나 5단계를 넘으면 END (비용·무한 반복 방지)
+- **상담원 승인**: tools 노드가 `book_test_drive`를 만나면 `interrupt()`로 멈추고 상태를 checkpointer에 저장.
+  승인/거절은 `Command(resume=...)`로 같은 `thread_id`를 이어서 실행 (API: `POST /chat/approve`)
+  - 승인을 **모두 받은 뒤에** 도구를 실행 → resume 때 노드가 다시 실행돼도 예약이 두 번 되지 않음
+  - 어차피 안 되는 예약(지난 날짜, 찬 시간)은 상담원에게 묻지 않고 바로 Claude에게 에러를 돌려줌
 
 ## 기술 스택
 Python · LangChain(LCEL, Tool Calling) · LangGraph · Claude API · Voyage AI · PostgreSQL + pgvector · rank-bm25 · FastAPI · Streamlit · pytest · Docker · Render · Neon
@@ -94,4 +101,5 @@ python -m rag.graph               # 그래프 구조를 mermaid로 출력
 - PDF 표가 줄 단위로 풀려 숫자의 칸 구분이 어려움
 - 평가셋이 23문항으로 작아 1문항 차이는 노이즈일 수 있음
 - 재고와 시승 데이터는 가상(mock)이고, 예약은 서버 메모리에만 저장되어 재시작하면 사라짐
-- 다음: 시승 예약(`book_test_drive`) 실행 전에 그래프를 멈추고 상담원 승인 받기 (human-in-the-loop)
+- 승인 대기 상태도 메모리(`InMemorySaver`)에 있어 재시작하면 사라짐. 실서비스라면 `PostgresSaver` + 상담원 인증 필요
+- 데모에서는 고객이 직접 상담원 역할로 승인 버튼을 누름
